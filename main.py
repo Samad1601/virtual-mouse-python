@@ -9,6 +9,7 @@ pTime=0
 hand_detection = mp.solutions.hands.Hands()
 drawing_points = mp.solutions.drawing_utils
 screen_width, screen_height = pg.size()
+scroll_mode=False
 
 
 # Click state flags
@@ -65,6 +66,49 @@ def handle_cursor_and_clicks(landmarks, frame, frame_width, frame_height, screen
         else:
             right_clicked = False
 
+def get_finger_states(lmList):
+    finger_states = []
+
+    if not lmList:
+        return [0, 0, 0, 0, 0]
+
+    # Thumb: left or right side movement
+    if lmList[4].x < lmList[3].x:
+        finger_states.append(1)
+    else:
+        finger_states.append(0)
+
+    # Other fingers: tip y < pip y means finger is up
+    tip_ids = [8, 12, 16, 20]
+    for i in range(1, 5):
+        if lmList[tip_ids[i - 1]].y < lmList[tip_ids[i - 1] - 2].y:
+            finger_states.append(1)
+        else:
+            finger_states.append(0)
+
+    return finger_states
+
+def handle_scroll(finger_states):
+    global scroll_mode
+
+    # Enter Scroll Mode with V-sign
+    if finger_states == [0, 1, 1, 0, 0] and not scroll_mode:
+        scroll_mode = True
+        print("Scroll Mode Activated")
+
+    # Exit scroll mode with a fist
+    elif finger_states == [0, 0, 0, 0, 0] and scroll_mode:
+        scroll_mode = False
+        print("Scroll Mode Deactivated")
+
+    # Scroll only when in scroll mode
+    if scroll_mode:
+        if finger_states == [0, 1, 0, 0, 0]:  # Index only
+            print("Scrolling Up")
+            pg.scroll(50)  # light scroll
+        elif finger_states == [0, 1, 1, 0, 0]:  # Index + middle
+            print("Scrolling Down")
+            pg.scroll(-50)
 
 while True:
     ret, frame = cap.read()
@@ -85,6 +129,9 @@ while True:
             drawing_points.draw_landmarks(frame, hand, mp.solutions.hands.HAND_CONNECTIONS)
             lmList = hand.landmark
             handle_cursor_and_clicks(lmList, frame, frame_width, frame_height, screen_width, screen_height)
+            fingers = get_finger_states(lmList)
+            handle_scroll(fingers)
+
         #     for idx, landmark in enumerate(landmark):
         #         x=int(landmark.x*frame_width)
         #         y=int(landmark.y*frame_height)
