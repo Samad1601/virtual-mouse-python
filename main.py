@@ -1,10 +1,21 @@
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+import numpy as np
 import cv2
 import time
+import screen_brightness_control as sbc
 import mediapipe as mp
 import pyautogui as pg
 cap= cv2.VideoCapture(0)
 cap.set(3, 640)  # Width
 cap.set(4, 480)  # Height
+devices = AudioUtilities.GetSpeakers()
+interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+volume = cast(interface, POINTER(IAudioEndpointVolume))
+vol_range = volume.GetVolumeRange()
+min_vol, max_vol = vol_range[0], vol_range[1]
+# Frame margin for click detection
 pTime=0
 hand_detection = mp.solutions.hands.Hands()
 drawing_points = mp.solutions.drawing_utils
@@ -110,6 +121,54 @@ def handle_scroll(finger_states):
             print("Scrolling Down")
             pg.scroll(-50)
 
+def handle_volume(lmList, frame):
+    if len(lmList) < 9:
+        return
+
+    x1, y1 = int(lmList[4].x * frame.shape[1]), int(lmList[4].y * frame.shape[0])  # Thumb tip
+    x2, y2 = int(lmList[8].x * frame.shape[1]), int(lmList[8].y * frame.shape[0])  # Index tip
+
+    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+    cv2.circle(frame, (x1, y1), 10, (255, 0, 0), cv2.FILLED)
+    cv2.circle(frame, (x2, y2), 10, (255, 0, 0), cv2.FILLED)
+    cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
+    cv2.circle(frame, (cx, cy), 8, (0, 255, 0), cv2.FILLED)
+
+    length = np.hypot(x2 - x1, y2 - y1)
+
+    # Convert length to volume
+    vol = np.interp(length, [20, 200], [min_vol, max_vol])
+    volume.SetMasterVolumeLevel(vol, None)
+
+    # Draw volume bar
+    vol_bar = np.interp(vol, [min_vol, max_vol], [400, 150])
+    vol_per = np.interp(vol, [min_vol, max_vol], [0, 100])
+    cv2.rectangle(frame, (30, 150), (55, 400), (209, 206, 0), 3)
+    cv2.rectangle(frame, (30, int(vol_bar)), (55, 400), (215, 255, 127), cv2.FILLED)
+    cv2.putText(frame, f'{int(vol_per)}%', (25, 430), cv2.FONT_HERSHEY_COMPLEX, 0.9, (209, 206, 0), 2)
+
+def handle_brightness(lmList, frame):
+    if len(lmList) < 16:
+        return
+
+    x1, y1 = int(lmList[4].x * frame.shape[1]), int(lmList[4].y * frame.shape[0])  # Thumb tip
+    x2, y2 = int(lmList[16].x * frame.shape[1]), int(lmList[16].y * frame.shape[0])  # Ring tip
+
+    # Visual feedback
+    cv2.circle(frame, (x1, y1), 10, (0, 255, 255), cv2.FILLED)
+    cv2.circle(frame, (x2, y2), 10, (0, 255, 255), cv2.FILLED)
+    cv2.line(frame, (x1, y1), (x2, y2), (100, 255, 255), 2)
+
+    length = np.hypot(x2 - x1, y2 - y1)
+
+    # Convert length to brightness (0 to 100)
+    brightness = np.interp(length, [20, 200], [0, 100])
+    sbc.set_brightness(int(brightness))
+
+    # UI
+    cv2.putText(frame, f'Brightness: {int(brightness)}%', (70, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+
 while True:
     ret, frame = cap.read()
     #undoing the mirror effect of the webcam
@@ -131,6 +190,10 @@ while True:
             handle_cursor_and_clicks(lmList, frame, frame_width, frame_height, screen_width, screen_height)
             fingers = get_finger_states(lmList)
             handle_scroll(fingers)
+            handle_volume(lmList, frame)
+            handle_brightness(lmList, frame)
+
+
 
         #     for idx, landmark in enumerate(landmark):
         #         x=int(landmark.x*frame_width)
